@@ -1,0 +1,103 @@
+name: Claude review (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      default_model:
+        type: string
+        default: claude-sonnet-4-6
+      deep_model:
+        type: string
+        default: claude-opus-4-8
+      max_turns:
+        type: string
+        default: "12"
+
+jobs:
+  review:
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'skip-review') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'deep-review')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pick model tier
+        id: tier
+        run: |
+          if ${{ contains(github.event.pull_request.labels.*.name, 'deep-review') }}; then
+            echo "model=${{ inputs.deep_model }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=${{ inputs.default_model }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Claude review
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_ENABLE_TELEMETRY: ${{ vars.OTEL_ENDPOINT != '' && '1' || '0' }}
+          OTEL_METRICS_EXPORTER: otlp
+          OTEL_LOGS_EXPORTER: otlp
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_ENDPOINT }}
+          OTEL_RESOURCE_ATTRIBUTES: "source=ci-review,repo=${{ github.repository }},pr=${{ github.event.pull_request.number }}"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model ${{ steps.tier.outputs.model }} --max-turns ${{ inputs.max_turns }}"
+          prompt: |
+            You are the automated first-pass reviewer for this organization.
+            Review PR #${{ github.event.pull_request.number }} using
+            `gh pr diff ${{ github.event.pull_request.number }}` to read the changes.
+
+            Focus on: correctness bugs, security issues, concurrency hazards,
+            missing error handling, and test gaps. Ignore style nits unless they
+            hide a bug. Only comment where you add real value; if the diff is
+            clean, say so briefly.
+
+            Post your review as inline comments plus a short summary using
+            `gh pr review` / `gh pr comment`. Do NOT push commits or modify code.
+
+            End your summary with a line: `model: ${{ steps.tier.outputs.model }}`
+
+      - name: Record usage
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          MODEL: ${{ steps.tier.outputs.model }}
+          LEDGER_TOKEN: ${{ secrets.LEDGER_TOKEN }}
+          OPS_REPO: jonhanke-ai-projects/claude-ops
+        run: |
+          set -euo pipefail
+          IN=$( jq '[.. | .input_tokens?  | numbers] | add // 0' "$EXEC_FILE" )
+          OUT=$(jq '[.. | .output_tokens? | numbers] | add // 0' "$EXEC_FILE" )
+          LINE="$(date -u +%FT%TZ),${{ github.repository }},PR#${{ github.event.pull_request.number }},$MODEL,$IN,$OUT"
+          {
+            echo "### Review usage"
+            echo "| model | input tokens | output tokens |"
+            echo "|---|---|---|"
+            echo "| $MODEL | $IN | $OUT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${LEDGER_TOKEN:-}" ]; then
+            AUTH="Authorization: Bearer $LEDGER_TOKEN"
+            EXISTING=$(curl -sf -H "$AUTH" \
+              "https://api.github.com/repos/$OPS_REPO/contents/usage.csv" || echo "")
+            if [ -n "$EXISTING" ]; then
+              SHA=$(echo "$EXISTING" | jq -r .sha)
+              BODY=$(echo "$EXISTING" | jq -r .content | base64 -d)
+              NEW=$(printf '%s\n%s' "$BODY" "$LINE" | base64 | tr -d '\n')
+              curl -sf -X PUT -H "$AUTH" \
+                "https://api.github.com/repos/$OPS_REPO/contents/usage.csv" \
+                -d "{\"message\":\"ledger: $LINE\",\"content\":\"$NEW\",\"sha\":\"$SHA\"}" > /dev/null
+            else
+              NEW=$(printf 'timestamp,repo,pr,model,input_tokens,output_tokens\n%s' "$LINE" | base64 | tr -d '\n')
+              curl -sf -X PUT -H "$AUTH" \
+                "https://api.github.com/repos/$OPS_REPO/contents/usage.csv" \
+                -d "{\"message\":\"ledger: init\",\"content\":\"$NEW\"}" > /dev/null
+            fi
+          fi
