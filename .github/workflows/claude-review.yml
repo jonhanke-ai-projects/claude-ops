@@ -12,6 +12,11 @@ on:
       max_turns:
         type: string
         default: "12"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      LEDGER_TOKEN:
+        required: false
 
 jobs:
   review:
