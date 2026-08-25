@@ -5,10 +5,10 @@ on:
     inputs:
       default_model:
         type: string
-        default: claude-sonnet-4-6
+        default: claude-sonnet-5
       deep_model:
         type: string
-        default: claude-opus-4-8
+        default: claude-opus-5
       max_turns:
         type: string
         default: "12"
