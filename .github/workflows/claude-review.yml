@@ -54,7 +54,10 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "source=ci-review,repo=${{ github.repository }},pr=${{ github.event.pull_request.number }}"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model ${{ steps.tier.outputs.model }} --max-turns ${{ inputs.max_turns }}"
+          claude_args: >-
+            --model ${{ steps.tier.outputs.model }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh pr review:*)"
           prompt: |
             You are the automated first-pass reviewer for this organization.
             Review PR #${{ github.event.pull_request.number }} using
