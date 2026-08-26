@@ -1,0 +1,121 @@
+name: Claude implement (reusable)
+
+# Triggered by a human writing "@claude ..." on an issue, or by applying the
+# `claude-implement` label. Claude branches, writes code and tests, runs the
+# suite, and opens a PR. It never merges -- the PR then goes through the
+# normal review workflow, so the implementer and the reviewer are separate
+# Claudes with separate context.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: claude-opus-5
+      max_turns:
+        type: string
+        default: "40"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  implement:
+    # Two guards that matter:
+    #   - sender.type != 'Bot' stops comment loops. The review workflow posts
+    #     as claude[bot]; without this, a review mentioning the trigger phrase
+    #     could start an implementation run, which opens a PR, which gets
+    #     reviewed, and so on.
+    #   - claude-code-action separately verifies the actor has write access
+    #     before doing anything, so a drive-by comment from a stranger on a
+    #     public repo cannot trigger it.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude-implement')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push the branch
+      pull-requests: write   # open the PR
+      issues: write          # report back on the issue
+      id-token: write        # OIDC -> app token exchange
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # full history; agent may need to read past work
+
+      - name: Claude implement
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Implementation needs the full toolset -- it has to edit files and
+          # run the test suite. This is much broader than the review workflow's
+          # four read-only gh commands, which is why the guards above matter.
+          claude_args: >-
+            --model ${{ inputs.model }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep"
+          prompt: |
+            You are implementing a change for this repository, triggered from
+            an issue.
+
+            Before writing anything, read `CLAUDE.md` if it exists and follow
+            its conventions exactly -- invariants, style, testing approach,
+            and any decision-record or changelog practice it describes. Those
+            conventions outrank your own defaults. Read the issue and any
+            issues it references.
+
+            Then:
+
+            1. Work on a new branch. Never commit to the default branch.
+            2. Implement the smallest change that fully addresses the issue.
+               Do not refactor adjacent code, add abstractions, or handle
+               hypothetical cases the issue does not raise.
+            3. Add or update tests covering the behaviour you changed, in
+               whatever framework the repo already uses. If the repo has no
+               tests, say so in the PR rather than inventing a framework.
+            4. Run the repo's own checks -- its test suite and any syntax or
+               build gate its docs describe. Report the actual output.
+            5. Update documentation the repo's conventions require. If
+               `CLAUDE.md` describes a decision-record practice, follow it.
+            6. Open a pull request referencing the issue. Explain what you
+               changed and why, what you tested and the result, and anything
+               you were unsure about.
+
+            Rules:
+
+            - Do not merge. A separate review runs on the PR you open.
+            - If tests fail and you cannot fix them, open the PR anyway with
+              the failure quoted and clearly flagged. A visible failure is
+              worth more than a green PR that quietly skipped the suite.
+            - If the issue is ambiguous enough that different readings give
+              materially different implementations, do not guess. Comment on
+              the issue asking the specific question, and open no PR.
+            - If the issue is a research or design question rather than a
+              task, say so on the issue instead of implementing something.
+
+      - name: Report usage
+        if: always() && steps.claude.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          IN=$( jq '[.. | .input_tokens?  | numbers] | add // 0' "$EXEC_FILE")
+          OUT=$(jq '[.. | .output_tokens? | numbers] | add // 0' "$EXEC_FILE")
+          COST=$(jq '[.. | .total_cost_usd? | numbers] | add // 0' "$EXEC_FILE")
+          DENIED=$(jq '[.. | .permission_denials_count? | numbers] | add // 0' "$EXEC_FILE")
+          {
+            echo "### Implementation run"
+            echo "| model | input | output | cost | tool denials |"
+            echo "|---|---|---|---|---|"
+            echo "| ${{ inputs.model }} | $IN | $OUT | \$$COST | $DENIED |"
+            if [ "$DENIED" != "0" ]; then
+              echo ""
+              echo "> Tool denials above zero mean Claude tried to do something"
+              echo "> the allowlist blocked. Check whether the work is complete."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
