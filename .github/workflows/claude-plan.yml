@@ -109,3 +109,28 @@ jobs:
             - Do not pad. A short plan for a small change is correct. The
               reader is going to approve or redirect this on a phone.
             - Do not restate the issue back at length. They wrote it.
+
+      # The implement workflow has had this since it died silently on its first
+      # real run; the plan workflow did not, and then died the same way on
+      # mustard-sketchup#7 -- 61 turns of analysis, no comment, a red job and
+      # nothing to read. A hard turn-limit kill gives the agent no chance to
+      # explain itself, so the workflow speaks for it.
+      - name: Report an incomplete run on the issue
+        if: failure() && github.event.issue.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "The planning run did not finish, so there is no plan on this issue."
+            echo ""
+            echo "[Run log]($RUN_URL). The usual cause is the turn limit: planning"
+            echo "reads a lot, and a large repository or an instruction to go and"
+            echo "verify something empirically will exhaust it."
+            echo ""
+            echo "Re-comment to retry. If it keeps hitting the limit, narrow what"
+            echo "the plan is asked to establish before it starts."
+          } | gh issue comment "$ISSUE" --body-file -
+
