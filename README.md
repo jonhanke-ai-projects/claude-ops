@@ -7,6 +7,16 @@ to a prompt or a model tier is one edit rather than one per repo.
 Public on purpose — a private repo's reusable workflows are not callable
 from another organization.
 
+## Field manual
+
+A longer guide — how to trigger these, the batch pattern they are built for,
+what they will not do, and how to diagnose a run that reports success and
+produces nothing:
+
+**https://claude.ai/code/artifact/d61567f0-4e12-4cb3-b5c3-1a08b37230a4**
+
+Start there if you have not used this before. What follows is the reference.
+
 ## Three workflows
 
 | | `claude-plan.yml` | `claude-implement.yml` | `claude-review.yml` |
