@@ -29,10 +29,16 @@ jobs:
     #   - claude-code-action separately verifies the actor has write access
     #     before doing anything, so a drive-by comment from a stranger on a
     #     public repo cannot trigger it.
+    #   - the `@claude plan` exclusion stops this workflow racing the plan
+    #     workflow. Both fire on issue_comment, and '@claude plan this'
+    #     contains '@claude', so without it one comment starts both and you
+    #     get a PR for something you only asked to have planned.
     if: >-
       github.event.sender.type != 'Bot' &&
       (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'issue_comment' &&
+         contains(github.event.comment.body, '@claude') &&
+         !contains(github.event.comment.body, '@claude plan')) ||
         (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude-implement')
       )
     runs-on: ubuntu-latest
