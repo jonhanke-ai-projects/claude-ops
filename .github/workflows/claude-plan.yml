@@ -50,12 +50,18 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: claude
-          # Read and comment only. No Write, no Edit, no unscoped Bash --
-          # a planning run that edits a file has misunderstood its job.
+          # Planning has to read code, and it reaches for bash to do it. A
+          # tightly scoped allowlist produced 10 permission denials on
+          # orderly#349 -- 16 turns of analysis, blocked before it could post,
+          # reported as success. Silence is the worst failure mode here.
+          #
+          # `contents: read` above is what actually prevents writes: nothing
+          # can be pushed and no PR can be opened, whatever bash does to the
+          # ephemeral checkout. The allowlist guides; the permissions enforce.
           claude_args: >-
             --model ${{ inputs.model }}
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Read,Glob,Grep,Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git show:*)"
+            --allowedTools "Read,Glob,Grep,Bash"
           prompt: |
             You are planning a change, not making it. Write no files. Open no
             pull request. Your entire output is one comment on the issue.
