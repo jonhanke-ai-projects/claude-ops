@@ -7,19 +7,31 @@ to a prompt or a model tier is one edit rather than one per repo.
 Public on purpose — a private repo's reusable workflows are not callable
 from another organization.
 
-## Two workflows
+## Three workflows
 
-| | `claude-review.yml` | `claude-implement.yml` |
-|---|---|---|
-| Trigger | every PR push | `@claude ...` on an issue, or the `claude-implement` label |
-| Does | reads the diff, comments | writes code and tests, opens a PR |
-| Tools | four read-only `gh pr` commands | full toolset (edit files, run tests) |
-| Model | `claude-sonnet-5`, or `claude-opus-5` with `deep-review` | `claude-opus-5` |
-| Merges? | never — posts `COMMENTED` | never — opens a PR for review |
+| | `claude-plan.yml` | `claude-implement.yml` | `claude-review.yml` |
+|---|---|---|---|
+| Trigger | `@claude plan` on an issue | `@claude ...` on an issue | every PR push |
+| Does | posts an approach, stops | writes code and tests, opens a PR | reads the diff, comments |
+| Writes? | **nothing** | branch + PR | nothing |
+| Tools | read + `gh issue comment` | full toolset | four read-only `gh pr` commands |
+| Model | `claude-opus-5` | `claude-opus-5` | `claude-sonnet-5`, or `claude-opus-5` with `deep-review` |
 
-They are meant to be used together. The implementer opens a PR; the
-reviewer reviews it. Different Claudes, different context, neither able to
-approve its own work.
+Meant to be used as a chain, with your attention needed twice and briefly:
+
+```
+@claude plan  ->  you read the plan, say go  ->  @claude implement  ->  review  ->  you merge
+```
+
+The point of the plan stage is that your decision gets cheaper the earlier it
+happens. Approving a paragraph takes a minute; rejecting a finished PR costs an
+implementation run and your attention on a diff you did not want.
+
+Different Claudes at each stage, with different context, and none of them able
+to approve their own work.
+
+**Planning is optional.** Well-specified issues can go straight to implement.
+Use plan when the issue is yours-to-yourself rather than written as a task.
 
 ## Adding a repo
 
@@ -32,8 +44,22 @@ approve its own work.
    `gh api orgs/ORG/installations --jq '.installations[].app_slug'`
    should include `claude`.
 
-Review is safe to enable everywhere. Implement is opt-in — it grants an
-agent write access to the repo, so enable it where you want that.
+Review and plan are safe to enable everywhere — neither writes anything.
+Implement is opt-in: it grants an agent write access to the repo, so enable it
+where you actually want that.
+
+## Working through a queue
+
+The pattern this is built for is not one issue at a time with you watching.
+That is the worst case — all of the latency, none of the benefit.
+
+Instead: comment `@claude plan this` on several issues at once. Nothing
+serializes them; each gets its own run. Come back later and read the plans as a
+batch, approving or redirecting in a line each. Then fire `@claude implement`
+at the ones you approved, and read the resulting PRs as a batch too.
+
+Your attention is needed twice, briefly, on your schedule, rather than
+continuously while a run you are watching finishes.
 
 ## Labels
 
@@ -41,6 +67,7 @@ agent write access to the repo, so enable it where you want that.
 |---|---|
 | `skip-review` | PR is not reviewed |
 | `deep-review` | re-runs the review on the deeper model tier |
+| `claude-plan` | applied to an **issue**, posts an approach and stops |
 | `claude-implement` | applied to an **issue**, starts an implementation run |
 
 ## Gotchas

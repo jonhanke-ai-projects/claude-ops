@@ -1,0 +1,97 @@
+name: Claude plan (reusable)
+
+# Triggered by "@claude plan ..." on an issue, or the `claude-plan` label.
+# Reads the issue and the repo's conventions, posts an approach as a comment,
+# and stops. It writes no code, opens no PR, and changes nothing.
+#
+# The point is to move the human decision earlier and make it cheaper. Reading
+# a paragraph and saying "go" costs a minute; rejecting a finished PR costs an
+# implementation run and your attention on a diff you did not want.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        default: claude-opus-5
+      max_turns:
+        # Planning is reading and thinking, not editing. It should be cheap
+        # relative to implementation (100 turns) -- if a plan needs more than
+        # this, that is itself a signal the issue is underspecified.
+        type: string
+        default: "25"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  plan:
+    # Same guards as the implement workflow: never bots (stops comment loops),
+    # and claude-code-action separately verifies the actor has write access.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude plan')) ||
+        (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'claude-plan')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read     # read-only: planning never writes
+      issues: write      # to post the plan
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Claude plan
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: claude
+          # Read and comment only. No Write, no Edit, no unscoped Bash --
+          # a planning run that edits a file has misunderstood its job.
+          claude_args: >-
+            --model ${{ inputs.model }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "Read,Glob,Grep,Bash(gh issue view:*),Bash(gh issue comment:*),Bash(git log:*),Bash(git show:*)"
+          prompt: |
+            You are planning a change, not making it. Write no files. Open no
+            pull request. Your entire output is one comment on the issue.
+
+            Read `CLAUDE.md` if it exists and take its conventions as binding --
+            invariants, testing approach, decision-record practice. Read the
+            issue and anything it references. Look at the actual code the issue
+            concerns; do not plan against what you assume the code does.
+
+            Then post a comment with:
+
+            - **What you understand the task to be**, in your own words. State
+              it plainly enough that a wrong reading is obvious to the reader.
+            - **The approach**, concretely: which files, which functions, what
+              changes. Name real paths you have looked at.
+            - **How it would be tested**, in the framework the repo already
+              uses. If the repo's conventions require a decision record or
+              changelog entry, say so and say where it goes.
+            - **What you are unsure about.** Be specific and few -- the
+              questions whose answers would change the implementation, not a
+              list of everything unknown. If there are none, say that.
+            - **A size estimate**: roughly how much of this is mechanical and
+              how much is judgement.
+
+            Then stop, and say plainly that you are waiting for a go-ahead.
+
+            Rules:
+
+            - **If the issue is a research or design question rather than a
+              task, say so and do not produce a plan.** "Are these eight spaces
+              required at all?" is a question whose answer is the work; a plan
+              for it would be fiction. Say what would have to be decided first.
+            - If the issue is underspecified in a way that matters, ask the
+              specific question rather than planning around a guess. An honest
+              "I need to know X first" is a better result than a plan built on
+              an assumption nobody checked.
+            - Do not pad. A short plan for a small change is correct. The
+              reader is going to approve or redirect this on a phone.
+            - Do not restate the issue back at length. They wrote it.

@@ -1,0 +1,26 @@
+# Opt-in. Copy to .github/workflows/claude-plan.yml in a repo that should
+# accept "@claude plan this" on its issues.
+# All logic lives in jonhanke-ai-projects/claude-ops -- edit there.
+name: Claude plan
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled]
+concurrency:
+  group: claude-plan-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    # A called workflow cannot request more permission than its caller holds,
+    # and these repos default GITHUB_TOKEN to read-only.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: jonhanke-ai-projects/claude-ops/.github/workflows/claude-plan.yml@main
+    # Explicit, not `secrets: inherit` -- inherit does not cross org
+    # boundaries and silently passes an empty string instead of failing.
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
