@@ -14,7 +14,7 @@ on:
         default: claude-opus-5
       max_turns:
         type: string
-        default: "40"
+        default: "100"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -72,19 +72,30 @@ jobs:
             Then:
 
             1. Work on a new branch. Never commit to the default branch.
-            2. Implement the smallest change that fully addresses the issue.
+            2. **Commit and push as soon as you have made your first edit**,
+               before it is finished and before tests pass. Then keep
+               committing as you go. You are working under a turn limit, and
+               anything not pushed is lost when you reach it -- a branch with
+               half the work on it is recoverable, an empty run is not. Say
+               plainly in each commit message what is and is not done yet.
+            3. Implement the smallest change that fully addresses the issue.
                Do not refactor adjacent code, add abstractions, or handle
                hypothetical cases the issue does not raise.
-            3. Add or update tests covering the behaviour you changed, in
+            4. Add or update tests covering the behaviour you changed, in
                whatever framework the repo already uses. If the repo has no
                tests, say so in the PR rather than inventing a framework.
-            4. Run the repo's own checks -- its test suite and any syntax or
+            5. Run the repo's own checks -- its test suite and any syntax or
                build gate its docs describe. Report the actual output.
-            5. Update documentation the repo's conventions require. If
+            6. Update documentation the repo's conventions require. If
                `CLAUDE.md` describes a decision-record practice, follow it.
-            6. Open a pull request referencing the issue. Explain what you
+            7. Open a pull request referencing the issue. Explain what you
                changed and why, what you tested and the result, and anything
                you were unsure about.
+
+            Budget your turns. On a large repository, reading everything
+            before editing anything is how you run out. Find the specific
+            code the issue names, change it, and let the tests tell you what
+            else needs looking at.
 
             Rules:
 
@@ -92,6 +103,10 @@ jobs:
             - If tests fail and you cannot fix them, open the PR anyway with
               the failure quoted and clearly flagged. A visible failure is
               worth more than a green PR that quietly skipped the suite.
+            - If you sense you are running low on turns, stop implementing
+              and spend the remainder pushing what you have and opening a
+              draft PR that states exactly where you got to and what is left.
+              An honest partial PR is a useful result.
             - If the issue is ambiguous enough that different readings give
               materially different implementations, do not guess. Comment on
               the issue asking the specific question, and open no PR.
@@ -119,3 +134,29 @@ jobs:
               echo "> the allowlist blocked. Check whether the work is complete."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # A hard turn-limit kill leaves the agent no chance to explain itself,
+      # so the workflow says so on the issue. Otherwise the run just goes red
+      # and nobody knows whether it did anything.
+      - name: Report an incomplete run on the issue
+        if: failure() && github.event.issue.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCHES=$(git ls-remote --heads origin 'claude/*' | awk '{print "`" $2 "`"}' | sed 's|refs/heads/||' | paste -sd, - || true)
+          {
+            echo "The implementation run did not finish. [Run log]($RUN_URL)"
+            echo ""
+            if [ -n "$BRANCHES" ]; then
+              echo "Partial work was pushed to: $BRANCHES — worth a look before re-running."
+            else
+              echo "No branch was pushed, so nothing was salvaged from this run."
+            fi
+            echo ""
+            echo "Common cause is the turn limit on a large repository. Re-run by"
+            echo "commenting again, or pick it up locally from the branch above."
+          } | gh issue comment "$ISSUE" --body-file -
+
