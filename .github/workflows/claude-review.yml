@@ -54,6 +54,13 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "source=ci-review,repo=${{ github.repository }},pr=${{ github.event.pull_request.number }}"
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Without this the reviewer refuses PRs opened by the implement
+          # workflow: "Workflow initiated by non-human actor: claude (type:
+          # Bot)". That breaks the whole point of having the two -- an agent
+          # opens a PR and nothing independent ever looks at it.
+          # Scoped to `claude` rather than `*`; reviewing is read-and-comment
+          # only, but there is no reason to accept arbitrary bots.
+          allowed_bots: claude
           claude_args: >-
             --model ${{ steps.tier.outputs.model }}
             --max-turns ${{ inputs.max_turns }}
