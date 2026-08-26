@@ -15,11 +15,12 @@ on:
         type: string
         default: claude-opus-5
       max_turns:
-        # Planning is reading and thinking, not editing. It should be cheap
-        # relative to implementation (100 turns) -- if a plan needs more than
-        # this, that is itself a signal the issue is underspecified.
+        # Planning is cheaper than implementing, but not as cheap as I first
+        # guessed. 25 was not enough to read enough of a ~30k-line repo to
+        # plan against it -- orderly#349 exhausted it after 26 turns with
+        # zero tool denials and posted nothing.
         type: string
-        default: "25"
+        default: "60"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -87,6 +88,13 @@ jobs:
               how much is judgement.
 
             Then stop, and say plainly that you are waiting for a go-ahead.
+
+            **Post the comment before you run out of turns.** You are working
+            under a limit, and a run that reaches it posts nothing at all --
+            no plan, no explanation, just a failed job. If you are running
+            low, stop reading and post what you have, saying which parts you
+            did not get to look at. A partial plan that names its own gaps is
+            useful; silence is not.
 
             Rules:
 
