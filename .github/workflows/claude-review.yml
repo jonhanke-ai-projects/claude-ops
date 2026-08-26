@@ -10,8 +10,12 @@ on:
         type: string
         default: claude-opus-5
       max_turns:
+        # 12 was enough for a README diff and not for a real one: reviewing a
+        # ~100-line change against a 12k-line test file exhausted it before a
+        # review was posted (orderly#344). A run that dies at the limit posts
+        # nothing at all, so this needs headroom rather than precision.
         type: string
-        default: "12"
+        default: "30"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
